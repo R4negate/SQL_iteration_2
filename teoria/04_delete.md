@@ -229,4 +229,4 @@ np. przy danych testowych, tabelach roboczych albo retencji danych.
 - Klucze obce mogą zablokować usuwanie danych.
 - Przy tabelach zależnych często najpierw usuwa się rekordy child, potem parent.
 - `TRUNCATE` czyści całą tabelę i nie ma `WHERE`.
-- Czasem zamiast fizycznego usuwania lepszy jest soft delete, np. zmiana statusu.
+- Czasem zamiast fizycznego usuwania lepszy jest soft delete, np. zmiana statusu na cancelled.

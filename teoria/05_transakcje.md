@@ -12,6 +12,49 @@ Możesz:
 - zatwierdzić zmiany przez `COMMIT`,
 - albo cofnąć zmiany przez `ROLLBACK`.
 
+Najprostsza intuicja:
+
+```text
+Transakcja to bezpieczne pudełko na zmiany.
+```
+
+Dopóki nie zrobisz `COMMIT`, możesz zdecydować, czy zmiany mają zostać zapisane,
+czy cofnięte.
+
+To jest szczególnie ważne przy DML, bo `INSERT`, `UPDATE` i `DELETE` zmieniają
+dane w tabelach.
+
+## Problem bez transakcji
+
+Wyobraź sobie, że chcesz dodać nowe zamówienie.
+
+Musisz wykonać kilka kroków:
+
+1. dodać klienta,
+2. dodać zamówienie,
+3. dodać pozycje zamówienia.
+
+Jeżeli pierwszy i drugi krok się uda, ale trzeci zakończy się błędem, baza może
+zostać w dziwnym stanie:
+
+```text
+klient istnieje
+zamówienie istnieje
+pozycje zamówienia nie istnieją
+```
+
+Technicznie część danych została zapisana, ale biznesowo proces nie zakończył
+się poprawnie.
+
+Transakcja rozwiązuje ten problem:
+
+```text
+Jeżeli wszystkie kroki się udadzą -> COMMIT
+Jeżeli którykolwiek krok się nie uda -> ROLLBACK
+```
+
+Dlatego transakcje są tak ważne przy pracy z powiązanymi tabelami.
+
 ## BEGIN
 
 `BEGIN` rozpoczyna transakcję.
@@ -90,12 +133,61 @@ Transakcja pozwala powiedzieć:
 Albo wszystko się uda, albo wszystko zostanie cofnięte.
 ```
 
+## Transakcja jako jednostka pracy
+
+W praktyce transakcja powinna obejmować jedną logiczną jednostkę pracy.
+
+Przykłady:
+
+- dodanie jednego zamówienia razem z pozycjami,
+- aktualizacja statusu zamówienia i zapis powiązanej korekty,
+- załadowanie jednej paczki danych do tabeli,
+- usunięcie danych testowych z kilku tabel,
+- odświeżenie tabeli roboczej.
+
+Nie chodzi o to, żeby wrzucać całą pracę dnia do jednej wielkiej transakcji.
+
+Chodzi o to, żeby razem zatwierdzać operacje, które logicznie muszą być spójne.
+
+## Co transakcje dają data engineerowi
+
+Data engineer często buduje procesy, które zapisują dane automatycznie.
+
+Przykład:
+
+```text
+Pobierz dane z API.
+Zapisz surowe rekordy.
+Znormalizuj zamówienia.
+Znormalizuj pozycje zamówień.
+Załaduj dane do tabel.
+```
+
+Transakcja pomaga, gdy kilka zapisów do bazy powinno zakończyć się jako jedna
+całość.
+
+Dzięki transakcjom:
+
+- nie zostawiamy częściowo załadowanych danych,
+- łatwiej cofnąć nieudaną operację,
+- można bezpieczniej testować `UPDATE` i `DELETE`,
+- relacje między tabelami mają większą szansę zostać spójne,
+- pipeline po błędzie nie zostawia bazy w przypadkowym stanie.
+
+Przykład:
+
+```text
+orders załadowane
+order_items niezaładowane
+```
+
+Taki stan jest podejrzany, bo zamówienia bez pozycji mogą zepsuć raporty.
+
+Transakcja może sprawić, że albo obie tabele zostaną załadowane, albo żadna.
+
 ## ACID
 
 Transakcje często opisuje się skrótem `ACID`.
-
-Na tym etapie nie trzeba znać bardzo formalnej definicji, ale warto rozumieć
-intuicję.
 
 ```text
 A - Atomicity
@@ -134,27 +226,19 @@ Przykład:
 ## Isolation
 
 Isolation oznacza, że równoległe transakcje nie powinny sobie przypadkowo
-przeszkadzać.
-
-W praktyce wiele osób albo procesów może jednocześnie pracować na bazie.
-Izolacja pomaga bazie kontrolować, co jedna transakcja widzi z drugiej.
-
-Na start wystarczy zapamiętać:
-
-> Transakcja daje bazie ramę do bezpiecznej pracy, nawet gdy wiele rzeczy dzieje się naraz.
+przeszkadzać. W praktyce wiele osób albo procesów może jednocześnie pracować na bazie.
 
 ## Durability
 
 Durability oznacza, że po `COMMIT` zmiany powinny być trwałe.
 
-Jeżeli baza zatwierdziła transakcję, dane nie powinny zniknąć tylko dlatego, że
-sesja użytkownika się zakończyła.
+Jeżeli baza zatwierdziła transakcję, możesz mieć pewność, że dane są w bazie danych
 
 ## Autocommit
 
 W wielu narzędziach SQL działa tryb `autocommit`.
 
-Oznacza to, że pojedyncze polecenie DML może zostać zatwierdzone automatycznie.
+Oznacza to, że pojedyncze polecenie może zostać zatwierdzone automatycznie.
 
 Przykład:
 
@@ -163,24 +247,75 @@ UPDATE course.orders
 SET status = 'paid'
 WHERE order_id = 1003;
 ```
-
 Jeżeli narzędzie ma włączony autocommit, zmiana może zostać zapisana od razu.
 
-Dlatego przy nauce bezpiecznie jest jawnie używać:
+
+## Transakcja i błędy
+
+Jeżeli w trakcie transakcji wystąpi błąd, trzeba świadomie zdecydować, co dalej.
+
+Najczęściej przy nauce robimy:
 
 ```sql
-BEGIN;
--- zmiany testowe
 ROLLBACK;
 ```
 
-albo:
+Czyli cofamy całą transakcję i zaczynamy od nowa.
+
+Przykład:
 
 ```sql
 BEGIN;
--- zmiany docelowe
+
+UPDATE course.orders
+SET status = 'paid'
+WHERE order_id = 1003;
+
+-- tutaj wyobraź sobie, że kolejne query kończy się błędem
+
+ROLLBACK;
+```
+
+Po `ROLLBACK` zmiana statusu zamówienia również zostanie cofnięta.
+
+## Uwaga, używanie transakcji nie zwalnia z używania mózgu
+
+Transakcja nie sprawi, że złe query stanie się dobre.
+
+Jeżeli napiszesz:
+
+```sql
+BEGIN;
+
+DELETE FROM course.order_items;
+
 COMMIT;
 ```
+
+to transakcja poprawnie zatwierdzi usunięcie wszystkich danych z tabeli.
+
+## Transakcje a idempotencja
+
+Transakcje i idempotencja to różne, ale powiązane pojęcia.
+
+Transakcja odpowiada na pytanie:
+
+```text
+Czy kilka operacji zapisze się razem albo cofnie razem?
+```
+
+Idempotencja odpowiada na pytanie:
+
+```text
+Czy mogę uruchomić ten sam proces drugi raz bez duplikatów i uszkodzenia danych?
+```
+
+W pipeline'ach danych potrzebujemy często obu rzeczy.
+
+Przykład:
+
+- transakcja chroni przed częściowym zapisem,
+- `ON CONFLICT DO UPDATE` chroni przed duplikatami przy ponownym uruchomieniu.
 
 ## Transakcje w data engineeringu
 
@@ -194,23 +329,8 @@ Orders się zapisały.
 Order_items padły w połowie.
 ```
 
-Bez transakcji baza może zostać w stanie częściowym.
-
-Z transakcją można powiedzieć:
-
 ```text
 Jeżeli cały load się nie udał, cofnij wszystko.
 ```
 
-To jest ważne, bo dane po pipeline'ie powinny być spójne i możliwe do zaufania.
-
-## Najważniejsze rzeczy do zapamiętania
-
-- `BEGIN` rozpoczyna transakcję.
-- `COMMIT` zatwierdza zmiany.
-- `ROLLBACK` cofa zmiany.
-- Transakcja pomaga pracować bezpiecznie.
-- Przy kilku powiązanych zmianach transakcja chroni spójność danych.
-- `ACID` opisuje podstawowe cechy transakcji.
-- Autocommit może zatwierdzać pojedyncze polecenia automatycznie.
-- W data engineeringu transakcje chronią przed częściowo załadowanymi danymi.
+To jest ważne, bo dane po pipeline'ie powinny być spójne.

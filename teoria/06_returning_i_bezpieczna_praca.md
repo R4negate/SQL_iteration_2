@@ -178,12 +178,3 @@ to baza pokaże usunięte rekordy, ale rekordy i tak zostały usunięte.
 
 Dlatego `RETURNING` jest narzędziem kontroli, ale nie jest zabezpieczeniem przed
 źle napisanym DML.
-
-## Najważniejsze rzeczy do zapamiętania
-
-- `RETURNING` pokazuje rekordy zmienione przez DML.
-- `RETURNING *` pokazuje wszystkie kolumny.
-- `RETURNING column_name` pokazuje tylko wybrane kolumny.
-- `RETURNING` jest bardzo przydatne przy `INSERT`, `UPDATE` i `DELETE`.
-- `RETURNING` pomaga kontrolować, ile i jakie rekordy zmieniła operacja.
-- `RETURNING` nie zastępuje poprawnego `WHERE`.
